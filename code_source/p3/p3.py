@@ -28,7 +28,9 @@ def least_squares(X, y):
     TODO 1: use np.linalg.lstsq; do not form an inverse of X.T @ X.
     The supplied data y has shape (n, 1); use training_arrays to flatten it.
     """
-    raise NotImplementedError("Implement least_squares (TODO 1).")
+    X, y = training_arrays(X, y)
+    theta, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+    return theta
 
 
 def huber_loss(theta, X, y, mu):
@@ -38,7 +40,21 @@ def huber_loss(theta, X, y, mu):
     Check the additive constant carefully: the handout has h_mu(0) = mu/2.
     Flatten theta and y; mu must be positive. Do not take a sample mean.
     """
-    raise NotImplementedError("Implement huber_loss (TODO 2).")
+    X, y = training_arrays(X, y)
+    theta = np.asarray(theta, dtype=float).reshape(-1)
+    if mu <= 0:
+        raise ValueError("mu must be positive.")
+    if theta.size != X.shape[1]:
+        raise ValueError("theta must contain one value per column of X.")
+
+    residuals = X @ theta - y
+    absolute_residuals = np.abs(residuals)
+    losses = np.where(
+        absolute_residuals >= mu,
+        absolute_residuals,
+        residuals**2 / (2.0 * mu) + mu / 2.0,
+    )
+    return float(np.sum(losses))
 
 
 def huber_gradient(theta, X, y, mu):
@@ -48,7 +64,20 @@ def huber_gradient(theta, X, y, mu):
     negative outer, and positive outer branches and both boundary values.
     Flatten theta and y; mu must be positive. Do not divide by n.
     """
-    raise NotImplementedError("Implement huber_gradient (TODO 3).")
+    X, y = training_arrays(X, y)
+    theta = np.asarray(theta, dtype=float).reshape(-1)
+    if mu <= 0:
+        raise ValueError("mu must be positive.")
+    if theta.size != X.shape[1]:
+        raise ValueError("theta must contain one value per column of X.")
+
+    residuals = X @ theta - y
+    residual_derivatives = np.where(
+        np.abs(residuals) >= mu,
+        np.sign(residuals),
+        residuals / mu,
+    )
+    return X.T @ residual_derivatives
 
 
 def gradient_checks(X, y, theta, mu, direction, steps):
@@ -78,7 +107,73 @@ def gradient_checks(X, y, theta, mu, direction, steps):
     abs(actual_loss_change - linear_prediction). The last field compares
     the finite difference of the SUM loss with the divided-by-n candidate.
     """
-    raise NotImplementedError("Implement gradient_checks (TODO 4).")
+    X, y = training_arrays(X, y)
+    theta = np.asarray(theta, dtype=float).reshape(-1)
+    direction = np.asarray(direction, dtype=float).reshape(-1)
+    steps = np.asarray(steps, dtype=float).reshape(-1)
+    if theta.size != X.shape[1] or direction.size != theta.size:
+        raise ValueError("theta and direction must match the columns of X.")
+    if not np.all(steps > 0):
+        raise ValueError("All finite-difference steps must be positive.")
+    direction_norm = np.linalg.norm(direction)
+    if direction_norm == 0:
+        raise ValueError("direction must be nonzero.")
+
+    direction = direction / direction_norm
+    loss = huber_loss(theta, X, y, mu)
+    gradient_dot_direction = float(
+        huber_gradient(theta, X, y, mu) @ direction)
+    n = X.shape[0]
+    mean_gradient_dot_direction = gradient_dot_direction / n
+    print(f"Directional-derivative check (mu={mu:g}, n={n})")
+    print("  step             analytic              finite difference      "
+          "absolute difference")
+    rows = []
+    for step in steps:
+        forward_loss = huber_loss(theta + step * direction, X, y, mu)
+        backward_loss = huber_loss(theta - step * direction, X, y, mu)
+        actual_loss_change = forward_loss - loss
+        linear_prediction = step * gradient_dot_direction
+        directional_finite_difference = (
+            forward_loss - backward_loss) / (2.0 * step)
+        mean_directional_finite_difference = (
+            forward_loss / n - backward_loss / n) / (2.0 * step)
+        ratio = None
+        if abs(mean_directional_finite_difference) > 1e-12:
+            ratio = (directional_finite_difference /
+                     mean_directional_finite_difference)
+        taylor_abs_error = abs(actual_loss_change - linear_prediction)
+        finite_difference_abs_error = abs(
+            directional_finite_difference - gradient_dot_direction)
+        print(f"  {step: .6e}   {gradient_dot_direction: .12e}   "
+              f"{directional_finite_difference: .12e}   "
+              f"{finite_difference_abs_error: .12e}")
+        rows.append({
+            "mu": float(mu),
+            "step": float(step),
+            "step_over_mu": float(step / mu),
+            "actual_loss_change": float(actual_loss_change),
+            "linear_prediction": float(linear_prediction),
+            "taylor_abs_error": float(taylor_abs_error),
+            "taylor_abs_error_over_step": float(taylor_abs_error / step),
+            "directional_finite_difference": float(
+                directional_finite_difference),
+            "gradient_dot_direction": gradient_dot_direction,
+            "finite_difference_abs_error": float(
+                finite_difference_abs_error),
+            "mean_gradient_dot_direction": mean_gradient_dot_direction,
+            "mean_directional_finite_difference": float(
+                mean_directional_finite_difference),
+            "mean_finite_difference_abs_error": float(abs(
+                mean_directional_finite_difference -
+                mean_gradient_dot_direction)),
+            "sum_to_mean_finite_difference_ratio": (
+                None if ratio is None else float(ratio)),
+            "mean_scaling_abs_error": float(abs(
+                directional_finite_difference -
+                mean_gradient_dot_direction)),
+        })
+    return rows
 
 
 def gradient_descent(X, y, theta0, mu=1e-5, alpha=0.001, steps=1000):
